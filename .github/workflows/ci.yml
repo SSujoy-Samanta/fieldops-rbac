@@ -1,0 +1,159 @@
+# ==============================================================================
+# CI — Parallel Path-Filtered Monorepo Pipeline
+# ==============================================================================
+# Smart CI behavior:
+#   • If only `backend/**` changes ➔ Runs Backend Typecheck & Build only
+#   • If only `frontend/**` changes ➔ Runs Frontend Typecheck, Lint & Build only
+#   • If root files / lockfile changes ➔ Runs BOTH in parallel
+#   • Both jobs run simultaneously in parallel for maximum speed
+# ==============================================================================
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel any in-progress run on the same branch when a new commit arrives.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── 1. Detect Changed Files ───────────────────────────────────────────────────
+  detect-changes:
+    name: Detect Changed Folders
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Path Filter Check
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
+              - '.github/workflows/ci.yml'
+
+  # ── 2. Backend CI Job (Runs only when backend or root changes) ────────────────
+  backend:
+    name: Backend (TypeCheck & Build)
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. Checkout the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Install pnpm (must come before setup-node so the cache works)
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # 3. Set up Node.js 20 LTS with pnpm dependency cache
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # 4. Install ALL workspace dependencies from the frozen lockfile
+      #    --frozen-lockfile ensures no accidental package upgrades in CI.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 5. Generate Prisma Client (required for backend typecheck to succeed)
+      #    Without this, @/generated/prisma imports will all fail with TS errors.
+      - name: Generate Prisma Client
+        run: pnpm --filter backend exec prisma generate
+
+      # 6. TypeScript type-check — backend only
+      #    `tsc --noEmit` validates all types without emitting any compiled files.
+      - name: TypeCheck — Backend
+        run: pnpm --filter backend typecheck
+
+      - name: Build — Backend
+        run: pnpm --filter backend build
+
+      - name: Upload Backend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dist
+          path: backend/dist
+          retention-days: 7
+
+  # ── 3. Frontend CI Job (Runs only when frontend or root changes) ──────────────
+  frontend:
+    name: Frontend (TypeCheck, Lint & Build)
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NEXT_PUBLIC_API_URL: http://localhost:5000
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+
+    steps:
+      # 1. Checkout the repository code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Install pnpm (must come before setup-node so the cache works)
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      # 3. Set up Node.js 20 LTS with pnpm dependency cache
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # 4. Install ALL workspace dependencies from the frozen lockfile
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # 5. TypeScript type-check — frontend only
+      #    `tsc --noEmit` validates all types without emitting any compiled files.
+      - name: TypeCheck — Frontend
+        run: pnpm --filter frontend typecheck
+
+      # 6. ESLint — checks for bad imports, unused vars, and code style violations
+      - name: Lint — Frontend
+        run: pnpm --filter frontend lint
+
+      # 7. Next.js 16 production build — validates all routes compile cleanly
+      - name: Build — Frontend
+        run: pnpm --filter frontend build
+
+      # 8. Upload compiled .next/ bundle for downstream deploy job (7-day retention)
+      - name: Upload Frontend Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-next
+          path: frontend/.next
+          retention-days: 7

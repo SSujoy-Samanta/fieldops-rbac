@@ -1,0 +1,169 @@
+# ==============================================================================
+# Deploy — Production Deployment
+# Frontend → Vercel | Backend → Render or VPS (choose one section below)
+# ==============================================================================
+# Triggers automatically after CI passes on main branch.
+# Can also be triggered manually via GitHub Actions UI.
+# ==============================================================================
+# REQUIRED GitHub Secrets (Settings → Secrets → Actions):
+#
+# Shared:
+#   NEXT_PUBLIC_API_URL        e.g. https://fieldops-api.render.com
+#   NEXT_PUBLIC_APP_URL        e.g. https://fieldops.vercel.app
+#
+# Frontend (Vercel):
+#   VERCEL_TOKEN               From vercel.com → Settings → Tokens
+#   VERCEL_ORG_ID              From frontend/.vercel/project.json
+#   VERCEL_PROJECT_ID          From frontend/.vercel/project.json
+#
+# Backend — Option A (Render):
+#   RENDER_DEPLOY_HOOK_URL     From Render dashboard → Settings → Deploy Hook
+#
+# Backend — Option B (VPS via Docker):
+#   VPS_HOST                   VPS IP address
+#   VPS_USER                   SSH username (e.g. ubuntu)
+#   VPS_SSH_KEY                Full contents of your private SSH key
+#   DOCKER_HUB_USERNAME        Docker Hub username
+#   DOCKER_HUB_TOKEN           Docker Hub access token
+#   DATABASE_URL               Production Postgres connection string
+#   REDIS_URL                  Production Redis connection string
+#   JWT_SECRET                 Production JWT secret
+#   GOOGLE_CLIENT_ID           Google OAuth client ID
+#   GOOGLE_CLIENT_SECRET       Google OAuth client secret
+# ==============================================================================
+
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  # ── 1. Deploy Frontend → Vercel ─────────────────────────────────────────────
+  deploy-frontend:
+    name: Deploy Frontend → Vercel
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    environment:
+      name: production
+      # url: https://your-app.vercel.app  ← Replace with your real Vercel URL after first deploy
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      # Install Vercel CLI
+      - name: Install Vercel CLI
+        run: pnpm add -g vercel@latest
+
+      # Pull Vercel project settings (links to your Vercel project)
+      - name: Pull Vercel Environment Info
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Build on Vercel's infrastructure (handles Next.js natively)
+      - name: Build Project on Vercel
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Deploy the pre-built output to production
+      - name: Deploy to Vercel Production
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+  # ── 2A. Deploy Backend → Render (Simple: Deploy Hook) ──────────────────────
+  # Comment out this job if using VPS instead (section 2B below).
+  deploy-backend-render:
+    name: Deploy Backend → Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      # Trigger Render's deploy hook — Render pulls from GitHub and redeploys.
+      # No Docker push needed; Render builds from source directly.
+      - name: Trigger Render Deploy Hook
+        run: |
+          curl -s --fail-with-body \
+            -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          echo "✅ Render deploy triggered successfully."
+
+  # ── 2B. Deploy Backend → VPS via Docker ────────────────────────────────────
+  # Uncomment this job and comment out deploy-backend-render if using VPS.
+  #
+  # deploy-backend-vps:
+  #   name: Deploy Backend → VPS
+  #   runs-on: ubuntu-latest
+  #   timeout-minutes: 20
+  #   if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #
+  #     # Login to Docker Hub to push the backend image
+  #     - name: Login to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKER_HUB_USERNAME }}
+  #         password: ${{ secrets.DOCKER_HUB_TOKEN }}
+  #
+  #     # Build & push backend image to Docker Hub
+  #     - name: Build & Push Backend Image
+  #       uses: docker/build-push-action@v6
+  #       with:
+  #         context: .
+  #         file: ./backend/Dockerfile
+  #         push: true
+  #         tags: ${{ secrets.DOCKER_HUB_USERNAME }}/fieldops-backend:latest
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #
+  #     # SSH into VPS, pull new image, restart container
+  #     - name: Deploy to VPS via SSH
+  #       uses: appleboy/ssh-action@v1
+  #       with:
+  #         host: ${{ secrets.VPS_HOST }}
+  #         username: ${{ secrets.VPS_USER }}
+  #         key: ${{ secrets.VPS_SSH_KEY }}
+  #         script: |
+  #           docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/fieldops-backend:latest
+  #           docker stop fieldops-backend || true
+  #           docker rm fieldops-backend || true
+  #           docker run -d \
+  #             --name fieldops-backend \
+  #             --restart unless-stopped \
+  #             -p 5000:5000 \
+  #             -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+  #             -e REDIS_URL="${{ secrets.REDIS_URL }}" \
+  #             -e JWT_SECRET="${{ secrets.JWT_SECRET }}" \
+  #             -e GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
+  #             -e GOOGLE_CLIENT_SECRET="${{ secrets.GOOGLE_CLIENT_SECRET }}" \
+  #             -e NODE_ENV="production" \
+  #             ${{ secrets.DOCKER_HUB_USERNAME }}/fieldops-backend:latest
+  #           echo "✅ VPS deploy complete."

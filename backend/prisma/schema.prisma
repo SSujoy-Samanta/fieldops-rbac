@@ -3,8 +3,11 @@
 // Pattern: ApnaWorks production conventions
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider      = "prisma-client"
+  output        = "../src/generated/prisma"
+  // Required for Docker Alpine (linux-musl) containers.
+  // Without this, Prisma throws "Query engine binary not found" at runtime.
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
 }
 
 datasource db {
