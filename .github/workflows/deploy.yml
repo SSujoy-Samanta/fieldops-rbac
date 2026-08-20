@@ -72,7 +72,15 @@ jobs:
       - name: Install Vercel CLI
         run: pnpm add -g vercel@latest
 
-      # Pull Vercel project settings (links to your Vercel project)
+      # Create .vercel/project.json so CLI knows which project to target
+      - name: Link Vercel Project
+        working-directory: frontend
+        run: |
+          mkdir -p .vercel
+          echo '{"orgId":"${{ secrets.VERCEL_ORG_ID }}","projectId":"${{ secrets.VERCEL_PROJECT_ID }}"}' > .vercel/project.json
+          cat .vercel/project.json
+
+      # Pull Vercel project settings
       - name: Pull Vercel Environment Info
         working-directory: frontend
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
