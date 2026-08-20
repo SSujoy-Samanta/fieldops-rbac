@@ -18,24 +18,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useUser } from "@/hooks/useUser";
-import { authApi } from "@/lib/api";
 import { toast } from "sonner";
 import { LogOut } from "lucide-react";
 
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { user, setUser } = useUser();
+  const { user, logout } = useUser();
 
   const handleLogout = async () => {
-    try {
-      await authApi.logout();
-    } catch {
-      // Continue cleanup
-    } finally {
-      setUser(null);
-      toast.info("Logged out of workspace.");
-      router.push("/login");
-    }
+    await logout();
+    toast.info("Logged out of workspace.");
+    router.push("/login");
   };
 
   const initials = user?.name

@@ -19,7 +19,7 @@ export function Wordmark({
   size = "md",
   invert = false,
   className,
-  href = "/overview",
+  href = "/",
   showIcon = true,
 }: WordmarkProps) {
   const sizeClasses: Record<WordmarkSize, string> = {

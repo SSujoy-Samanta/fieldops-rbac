@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useCallback, useMemo } from "react";
+import React, { createContext, useContext, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { rbacApi, ApiError } from "@/lib/api";
 import { queryKeys } from "@/lib/query-keys";
@@ -48,7 +48,7 @@ export function PermissionProvider({
         const res = await rbacApi.getMyPermissions();
         return res.data?.rbac || null;
       } catch (err) {
-        if (err instanceof ApiError && err.status === 401) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
           return null;
         }
         throw err;
@@ -56,21 +56,29 @@ export function PermissionProvider({
     },
     enabled: Boolean(user),
     retry: false,
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    // Only cache active permission payloads. Null / missing permissions are marked stale immediately (0ms).
+    staleTime: (query) => (query.state.data ? 1000 * 60 * 5 : 0),
     gcTime: 1000 * 60 * 15,
   });
 
-  const rbac = data || null;
+  // Automatically refetch permissions whenever the active user identity changes (e.g. login / account switch)
+  useEffect(() => {
+    if (user?.id) {
+      refetch();
+    }
+  }, [user?.id, refetch]);
+
+  const rbac = user ? data || null : null;
   const roleName = rbac?.roleName || null;
   const roleId = rbac?.roleId || null;
   const isOwner = Boolean(rbac?.isOwner || roleName === SYSTEM_ROLE.OWNER);
-  const permissionList = useMemo(() => rbac?.permissions || [], [rbac?.permissions]);
+  const permissionList = useMemo(() => (user ? rbac?.permissions || [] : []), [user, rbac?.permissions]);
   const permissions = useMemo(
     () => new Set<PERMISSION_KEY>(permissionList),
     [permissionList]
   );
-  const isLoading = Boolean(user && queryLoading);
-  const error = queryError as Error | null;
+  const isLoading = Boolean(user && queryLoading && !data);
+  const error = (user ? queryError : null) as Error | null;
 
   /**
    * can
@@ -79,10 +87,11 @@ export function PermissionProvider({
    */
   const can = useCallback(
     (permission: PERMISSION_KEY): boolean => {
+      if (!user) return false;
       if (isOwner) return true;
       return permissions.has(permission);
     },
-    [isOwner, permissions]
+    [user, isOwner, permissions]
   );
 
   /**
@@ -91,10 +100,11 @@ export function PermissionProvider({
    */
   const canAny = useCallback(
     (perms: PERMISSION_KEY[]): boolean => {
+      if (!user) return false;
       if (isOwner) return true;
       return perms.some((p) => permissions.has(p));
     },
-    [isOwner, permissions]
+    [user, isOwner, permissions]
   );
 
   /**
@@ -103,10 +113,11 @@ export function PermissionProvider({
    */
   const canAll = useCallback(
     (perms: PERMISSION_KEY[]): boolean => {
+      if (!user) return false;
       if (isOwner) return true;
       return perms.every((p) => permissions.has(p));
     },
-    [isOwner, permissions]
+    [user, isOwner, permissions]
   );
 
   /**
@@ -117,15 +128,24 @@ export function PermissionProvider({
     (newPermissions: PERMISSION_KEY[]) => {
       queryClient.setQueryData(
         queryKeys.rbac.myPermissions(),
-        (old: { rbac?: RbacContext } | undefined) => {
-          if (!old?.rbac) return old;
-          return {
-            ...old,
-            rbac: {
-              ...old.rbac,
+        (old: RbacContext | { rbac?: RbacContext } | undefined) => {
+          if (!old) return old;
+          if ("permissions" in old) {
+            return {
+              ...old,
               permissions: newPermissions,
-            },
-          };
+            };
+          }
+          if ("rbac" in old && old.rbac) {
+            return {
+              ...old,
+              rbac: {
+                ...old.rbac,
+                permissions: newPermissions,
+              },
+            };
+          }
+          return old;
         }
       );
     },
@@ -178,7 +198,7 @@ export function usePermissions(): PermissionContextState {
   const context = useContext(PermissionContext);
   if (context === undefined) {
     throw new Error(
-      "usePermissions must be used within a PermissionProvider (under RequireAuth)"
+      "usePermissions must be used within a PermissionProvider (under UserProvider)"
     );
   }
   return context;

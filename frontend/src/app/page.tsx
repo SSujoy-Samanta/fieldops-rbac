@@ -25,22 +25,18 @@ import { buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { useUser } from "@/hooks/useUser";
-import { authApi } from "@/lib/api";
 import { toast } from "sonner";
 
 export default function LandingPage() {
-  const { user, setUser } = useUser();
+  const { user, logout } = useUser();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = async () => {
     setIsLoggingOut(true);
     try {
-      await authApi.logout();
-    } catch {
-      // Continue cleanup
-    } finally {
-      setUser(null);
+      await logout();
       toast.info("Logged out of workspace.");
+    } finally {
       setIsLoggingOut(false);
     }
   };

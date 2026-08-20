@@ -21,7 +21,6 @@ import { Wordmark } from "@/components/brand/Wordmark";
 import { navigationSections } from "@/config/navigation";
 import { useUser } from "@/hooks/useUser";
 import { usePermissions } from "@/hooks/usePermissions";
-import { authApi } from "@/lib/api";
 import { SYSTEM_ROLE } from "@/types/rbac";
 import { toast } from "sonner";
 import { LogOut } from "lucide-react";
@@ -30,20 +29,14 @@ import { cn } from "@/lib/utils";
 export function AppSidebar() {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, setUser } = useUser();
+  const { user, logout } = useUser();
   const { roleName, can, canAny } = usePermissions();
   const { setOpenMobile, isMobile } = useSidebar();
 
   const handleLogout = async () => {
-    try {
-      await authApi.logout();
-    } catch {
-      // Continue cleanup
-    } finally {
-      setUser(null);
-      toast.info("Logged out of workspace.");
-      router.push("/login");
-    }
+    await logout();
+    toast.info("Logged out of workspace.");
+    router.push("/login");
   };
 
   const initials = user?.name

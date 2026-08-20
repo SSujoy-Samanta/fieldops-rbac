@@ -119,13 +119,17 @@ apiClient.interceptors.response.use(
       originalRequest &&
       !originalRequest._isRetry
     ) {
-      // Prevent infinite loop if the refresh endpoint itself fails with 401
+      // Prevent token refresh attempts on pure auth endpoints / handshakes
       if (
         originalRequest.url?.includes("/auth/refresh") ||
-        originalRequest.url?.includes("/auth/login")
+        originalRequest.url?.includes("/auth/login") ||
+        originalRequest.url?.includes("/auth/google") ||
+        originalRequest.url?.includes("/auth/me") ||
+        originalRequest.url?.includes("/auth/forgot-password") ||
+        originalRequest.url?.includes("/auth/reset-password")
       ) {
         return Promise.reject(
-          new ApiError(401, "Session expired. Please log in again.", "UNAUTHORIZED")
+          new ApiError(401, "Unauthenticated session.", "UNAUTHORIZED")
         );
       }
 
@@ -160,15 +164,6 @@ apiClient.interceptors.response.use(
       } catch (refreshError) {
         isRefreshing = false;
         onRefreshComplete(false);
-
-        // Redirect to login if in browser and session is dead
-        if (typeof window !== "undefined") {
-          const currentPath = window.location.pathname;
-          if (currentPath !== "/login" && currentPath !== "/") {
-            // eslint-disable-next-line @next/next/no-location-assign-relative-destination
-            window.location.href = `/login?returnTo=${encodeURIComponent(currentPath)}`;
-          }
-        }
 
         const status = axios.isAxiosError(refreshError)
           ? refreshError.response?.status || 401
