@@ -7,19 +7,21 @@ const BACKEND_URL =
   process.env.NEXT_PUBLIC_API_URL ??
   "http://localhost:5000";
 
-const nextConfig: NextConfig = {
-  // ── Standalone Output (Docker Production) ────────────────────────────────────
-  // Generates a self-contained `.next/standalone` bundle with only the files
-  // required to run the app. Makes Docker images 10-30x smaller.
-  // See: https://nextjs.org/docs/app/api-reference/config/next-config-js/output
-  output: "standalone",
+// Detect if running inside Vercel's build environment
+const isVercel = Boolean(process.env.VERCEL);
 
-  // ── Monorepo File Tracing Root ────────────────────────────────────────────────
-  // In a pnpm workspace, Next.js must trace dependencies from the monorepo root,
-  // not just the frontend/ subdirectory. Without this, the standalone output
-  // may miss shared node_modules resolved via pnpm workspace symlinks.
-  // See: https://nextjs.org/docs/app/api-reference/config/next-config-js/outputFileTracingRoot
-  outputFileTracingRoot: path.join(__dirname, "../"),
+const nextConfig: NextConfig = {
+  // ── Standalone Output (Docker Only) ──────────────────────────────────────────
+  // Docker needs `output: "standalone"` and `outputFileTracingRoot` to build
+  // lightweight containers.
+  // On Vercel, Vercel natively optimizes Next.js serverless functions, so
+  // standalone mode is bypassed to prevent `next-server.js.nft.json` ENOENT conflicts.
+  ...(isVercel
+    ? {}
+    : {
+        output: "standalone",
+        outputFileTracingRoot: path.join(__dirname, "../"),
+      }),
 
   // ── API Proxy (Same-Domain Pattern) ─────────────────────────────────────────
   // Browser calls localhost:3000/api/* → Next.js forwards to Backend (localhost:5000/api/*)
