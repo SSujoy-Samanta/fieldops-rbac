@@ -1,0 +1,41 @@
+# ==============================================================================
+# Backend .dockerignore
+# ==============================================================================
+
+# Dependencies
+node_modules
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Build Outputs
+dist
+build
+
+# Environment Variables (Inject via Docker Compose or Container Env)
+.env
+.env*.local
+.env.development
+.env.production
+!.env.example
+
+# Git & Agent Metadata
+.git
+.gitignore
+.agents
+.claude
+.windsurf
+.gemini
+
+# IDE & OS Artifacts
+.idea
+.vscode
+.DS_Store
+Thumbs.db
+*.pem
+
+# Logs & Temporary Data
+logs
+*.log
+temp
+tmp

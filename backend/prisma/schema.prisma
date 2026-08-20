@@ -1,0 +1,265 @@
+// FieldOps Access Test — Prisma Schema
+// Dynamic Permission-Based RBAC, Users, Auth, Attendance, Field Visits
+// Pattern: ApnaWorks production conventions
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────
+
+enum AUTH_METHOD {
+  EMAIL_PASSWORD
+  GOOGLE_OAUTH
+  MAGIC_LINK
+}
+
+enum ATTENDANCE_STATUS {
+  CLOCKED_IN
+  CLOCKED_OUT
+}
+
+enum VISIT_PURPOSE {
+  ROUTINE_INSPECTION
+  PRODUCT_DEMO
+  ORDER_COLLECTION
+  MAINTENANCE
+  CLIENT_MEETING
+  OTHER
+}
+
+enum VISIT_OUTCOME {
+  COMPLETED
+  FOLLOW_UP_REQUIRED
+  DEAL_CLOSED
+  RESCHEDULED
+  NO_SHOW
+}
+
+enum PERMISSION_MODULE {
+  ATTENDANCE
+  VISITS
+  ROLES
+  USERS
+}
+
+enum PERMISSION_KEY {
+  CLOCK_IN_OUT
+  READ_SELF_ATTENDANCE
+  READ_ALL_ATTENDANCE
+  SAVE_VISIT
+  READ_SELF_VISIT
+  READ_ALL_VISIT
+  MANAGE_ROLES
+  MANAGE_USERS
+}
+
+enum SYSTEM_ROLE {
+  OWNER
+  MANAGER
+  FIELD_EMPLOYEE
+}
+
+// ─────────────────────────────────────────────────────────────────
+// RBAC — PERMISSIONS & ROLES
+// ─────────────────────────────────────────────────────────────────
+
+model Permission {
+  id          String            @id @default(cuid())
+  key         PERMISSION_KEY    @unique
+  name        String            @db.VarChar(128)
+  module      PERMISSION_MODULE
+  description String?           @db.VarChar(255)
+  createdAt   DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime          @updatedAt @db.Timestamptz(3)
+
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model Role {
+  id              String           @id @default(cuid())
+  name            SYSTEM_ROLE      @unique
+  description     String?          @db.VarChar(255)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@map("roles")
+}
+
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────
+
+model User {
+  id              String              @id @default(cuid())
+  email           String              @unique @db.VarChar(255)
+  name            String              @db.VarChar(128)
+  passwordHash    String?
+  googleId        String?             @unique @db.VarChar(128)
+  avatar          String?
+  roleId          String
+  isActive        Boolean             @default(true)
+  isVerified      Boolean             @default(false)
+  emailVerifiedAt DateTime?           @db.Timestamptz(3)
+  lastLoginAt     DateTime?           @db.Timestamptz(3)
+  /// @pii — purge after 90 days per GDPR/CCPA
+  lastLoginIp     String?             @db.VarChar(45)
+  lastAuthMethod  AUTH_METHOD?
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime?           @db.Timestamptz(3)
+
+  role                Role                @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  authSessions        AuthSession[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  attendanceLogs      Attendance[]
+  visits              Visit[]
+
+  @@index([email])
+  @@index([roleId])
+  @@index([isActive, deletedAt])
+  @@index([createdAt])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// AUTH SESSIONS & TOKENS
+// ─────────────────────────────────────────────────────────────────
+
+model AuthSession {
+  id         String    @id @default(cuid())
+  token      String    @unique @db.VarChar(64)
+  userId     String
+  deviceInfo String?   @db.VarChar(512)
+  /// @pii - supports IPv6
+  ipAddress  String?   @db.VarChar(45)
+  /// @pii — purge after 90 days per GDPR/CCPA
+  userAgent  String?   @db.VarChar(512)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  lastUsedAt DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt  DateTime? @db.Timestamptz(3)
+  isRevoked  Boolean   @default(false)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRevoked])
+  @@index([token])
+  @@index([expiresAt])
+  @@index([createdAt])
+  @@map("auth_sessions")
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  token      String    @unique @db.VarChar(64)
+  userId     String
+  expiresAt  DateTime  @db.Timestamptz(3)
+  isRevoked  Boolean   @default(false)
+  deviceInfo String?
+  /// @pii — purge after 90 days per GDPR/CCPA
+  ipAddress  String?   @db.VarChar(45)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime? @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@index([userId, isRevoked])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique @db.VarChar(128)
+  userId    String
+  expiresAt DateTime @db.Timestamptz(3)
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// ATTENDANCE
+// ─────────────────────────────────────────────────────────────────
+
+model Attendance {
+  id              String            @id @default(cuid())
+  userId          String
+  clockIn         DateTime          @default(now()) @db.Timestamptz(3)
+  clockOut        DateTime?         @db.Timestamptz(3)
+  durationMinutes Int?              // Computed automatically upon clock out
+  date            DateTime          @default(now()) @db.Timestamptz(3)
+  locationNotes   String?           @db.VarChar(512)
+  status          ATTENDANCE_STATUS @default(CLOCKED_IN)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([status])
+  @@index([userId, status])
+  @@map("attendances")
+}
+
+// ─────────────────────────────────────────────────────────────────
+// FIELD VISITS
+// ─────────────────────────────────────────────────────────────────
+
+model Visit {
+  id           String        @id @default(cuid())
+  userId       String
+  customerName String        @db.VarChar(255)
+  purpose      VISIT_PURPOSE
+  outcome      VISIT_OUTCOME
+  address      String        @db.VarChar(512)
+  visitDate    DateTime      @default(now()) @db.Timestamptz(3)
+  notes        String?       @db.Text
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime      @updatedAt @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([visitDate])
+  @@index([userId, visitDate])
+  @@index([outcome])
+  @@map("visits")
+}

@@ -1,0 +1,67 @@
+# ==============================================================================
+# Next.js & Frontend .gitignore
+# ==============================================================================
+
+# ── Dependencies ─────────────────────────────────────────────────────────────
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ── Next.js Build Output & Cache ─────────────────────────────────────────────
+/.next/
+/out/
+/build
+/dist
+
+# ── Environment & Local Configs ──────────────────────────────────────────────
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+!.env.example
+
+# ── TypeScript Build Cache ───────────────────────────────────────────────────
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+next-env.d.ts
+
+# ── Testing & Coverage ───────────────────────────────────────────────────────
+/coverage
+*.lcov
+
+# ── Debug Logs ───────────────────────────────────────────────────────────────
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── OS & IDE Artifacts ───────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.pem
+.idea/
+.vscode/
+
+# ── AI & IDE Agent Folders & Instruction Files ──────────────────────────────
+.agents/
+.claude/
+.windsurf/
+.gemini/
+AGENTS.md
+CLAUDE.md
+
+# ── Deployment Platforms ─────────────────────────────────────────────────────
+.vercel
+.turbo
