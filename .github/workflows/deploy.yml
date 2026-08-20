@@ -74,6 +74,7 @@ jobs:
 
       # Pull Vercel project settings (links to your Vercel project)
       - name: Pull Vercel Environment Info
+        working-directory: frontend
         run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -81,6 +82,7 @@ jobs:
 
       # Build on Vercel's infrastructure (handles Next.js natively)
       - name: Build Project on Vercel
+        working-directory: frontend
         run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -88,6 +90,7 @@ jobs:
 
       # Deploy the pre-built output to production
       - name: Deploy to Vercel Production
+        working-directory: frontend
         run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
         env:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
